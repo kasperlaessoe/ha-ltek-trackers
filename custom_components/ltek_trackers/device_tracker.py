@@ -46,12 +46,22 @@ class LtekTrackerLocation(LtekTrackerEntity, TrackerEntity):
         return SourceType.GPS
 
     @property
+    def _coordinates(self) -> tuple[float, float] | None:
+        lat = number(self.tracker, "position", "lat")
+        lon = number(self.tracker, "position", "lon")
+        if lat is None or lon is None or not (-90 <= lat <= 90 and -180 <= lon <= 180):
+            return None
+        return lat, lon
+
+    @property
     def latitude(self) -> float | None:
-        return number(self.tracker, "position", "lat")
+        coords = self._coordinates
+        return coords[0] if coords else None
 
     @property
     def longitude(self) -> float | None:
-        return number(self.tracker, "position", "lon")
+        coords = self._coordinates
+        return coords[1] if coords else None
 
     @property
     def location_accuracy(self) -> float:

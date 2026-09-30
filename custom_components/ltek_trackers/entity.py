@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING, Any
 
@@ -33,6 +34,8 @@ def number(tracker: dict[str, Any] | None, *path: str) -> float | None:
     """A numeric field, or None when missing or not a number."""
     value = field(tracker, *path)
     if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    if not math.isfinite(value):
         return None
     return value
 
@@ -78,9 +81,10 @@ def add_trackers_as_they_appear(
 
     @callback
     def add_new() -> None:
-        current = set(coordinator.data)
-        known.intersection_update(current)
-        new = current - known
+        # Forget trackers whose device was removed, so they are re-added if
+        # they come back; ones still in their grace period keep their entities.
+        known.intersection_update(coordinator.tracked | set(coordinator.data))
+        new = set(coordinator.data) - known
         if not new:
             return
         known.update(new)

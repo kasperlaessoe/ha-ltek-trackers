@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from datetime import timedelta
 from typing import Any
 
 import aiohttp
+import pytest
 from freezegun.api import FrozenDateTimeFactory
 from homeassistant.config_entries import SOURCE_REAUTH, ConfigEntryState
 from homeassistant.const import STATE_OFF, STATE_ON, STATE_UNAVAILABLE, STATE_UNKNOWN
@@ -18,10 +20,17 @@ from pytest_homeassistant_custom_component.common import (
 )
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
-from custom_components.ltek_trackers.const import DOMAIN, SCAN_INTERVAL_S
+from custom_components.ltek_trackers.const import (
+    CONF_SERVER,
+    CONF_TOKEN,
+    DOMAIN,
+    MISSING_POLLS_BEFORE_REMOVAL,
+    SCAN_INTERVAL_S,
+    SERVER_PRODUCTION,
+)
 from custom_components.ltek_trackers.diagnostics import async_get_config_entry_diagnostics
 
-from .conftest import PROD_URL, TOKEN, api_url
+from .conftest import ME, PROD_URL, TOKEN, TRACKER_A, TRACKER_B, USER_ID, api_url
 
 TRACKERS_URL = api_url(PROD_URL)
 
@@ -76,8 +85,8 @@ async def test_entity_states(
     assert location.attributes["source_type"] == "gps"
 
     assert hass.states.get("sensor.test_stick_battery").state == "81"
-    assert float(hass.states.get("sensor.test_stick_speed").state) == 18.0  # 5 m/s
-    assert hass.states.get("sensor.test_stick_speed").attributes["unit_of_measurement"] == "km/h"
+    # Unit left to HA's unit system; the metric test config keeps m/s.
+    assert float(hass.states.get("sensor.test_stick_speed").state) == 5.0
     assert hass.states.get("sensor.test_stick_altitude").state == "12"
     assert hass.states.get("sensor.test_stick_signal_strength_rsrp").state == "-97"
     assert hass.states.get("sensor.test_stick_last_seen").state == "2026-01-01T12:00:00+00:00"
@@ -122,13 +131,16 @@ async def test_bad_items_are_skipped(
     config_entry: MockConfigEntry,
     trackers_payload: list[dict[str, Any]],
 ) -> None:
-    trackers_payload[0]["position"] = {"lat": "not a number", "lon": None}
+    trackers_payload[0]["position"] = {"lat": "not a number", "lon": None, "alt_m": math.nan}
     trackers_payload[0]["battery"] = "flat"
+    trackers_payload[0]["last_seen"] = "2026-01-01T12:00:00"  # no zone
     payload = [*trackers_payload, "junk", {"name": "no id"}]
     await _setup(hass, aioclient_mock, config_entry, payload)
     assert config_entry.state is ConfigEntryState.LOADED
     assert hass.states.get("device_tracker.test_stick").state == STATE_UNKNOWN
     assert hass.states.get("sensor.test_stick_battery").state == STATE_UNKNOWN
+    assert hass.states.get("sensor.test_stick_altitude").state == STATE_UNKNOWN
+    assert hass.states.get("sensor.test_stick_last_seen").state == STATE_UNKNOWN
     assert len(_devices(hass, config_entry)) == 2
 
 
@@ -148,29 +160,37 @@ async def test_server_down_at_setup_retries(
     assert config_entry.state is ConfigEntryState.SETUP_RETRY
 
 
+@pytest.mark.parametrize("status", [401, 403])
 async def test_revoked_token_while_running_starts_reauth(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
     config_entry: MockConfigEntry,
     trackers_payload: list[dict[str, Any]],
     freezer: FrozenDateTimeFactory,
+    status: int,
 ) -> None:
     await _setup(hass, aioclient_mock, config_entry, trackers_payload)
-    await _poll(hass, aioclient_mock, freezer, status=401)
+    await _poll(hass, aioclient_mock, freezer, status=status)
     flows = hass.config_entries.flow.async_progress()
     assert [f["context"]["source"] for f in flows] == [SOURCE_REAUTH]
     assert hass.states.get("sensor.test_stick_battery").state == STATE_UNAVAILABLE
 
 
+@pytest.mark.parametrize(
+    "failure",
+    [{"exc": aiohttp.ClientError()}, {"exc": TimeoutError()}, {"status": 302}],
+)
 async def test_outage_marks_unavailable_then_recovers(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
     config_entry: MockConfigEntry,
     trackers_payload: list[dict[str, Any]],
     freezer: FrozenDateTimeFactory,
+    failure: dict[str, Any],
 ) -> None:
     await _setup(hass, aioclient_mock, config_entry, trackers_payload)
-    await _poll(hass, aioclient_mock, freezer, exc=aiohttp.ClientError())
+    await _poll(hass, aioclient_mock, freezer, **failure)
+    assert not config_entry.runtime_data.last_update_success
     assert hass.states.get("sensor.test_stick_battery").state == STATE_UNAVAILABLE
 
     trackers_payload[0]["battery"]["pct"] = 70
@@ -179,7 +199,26 @@ async def test_outage_marks_unavailable_then_recovers(
     assert not hass.config_entries.flow.async_progress()
 
 
-async def test_tracker_removed_and_added(
+async def test_one_missed_poll_keeps_the_device(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    trackers_payload: list[dict[str, Any]],
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    await _setup(hass, aioclient_mock, config_entry, trackers_payload)
+    entity_id = er.async_get(hass).async_get("sensor.test_stick_battery").entity_id
+
+    await _poll(hass, aioclient_mock, freezer, json=trackers_payload[1:])
+    assert set(_devices(hass, config_entry)) == {"Test Stick", "Shared Stick"}
+    assert hass.states.get(entity_id).state == STATE_UNAVAILABLE
+
+    await _poll(hass, aioclient_mock, freezer, json=trackers_payload)
+    assert hass.states.get(entity_id).state == "81"
+    assert er.async_get(hass).async_get("sensor.test_stick_battery") is not None
+
+
+async def test_tracker_removed_after_three_misses_and_added_back(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
     config_entry: MockConfigEntry,
@@ -190,6 +229,9 @@ async def test_tracker_removed_and_added(
     assert set(_devices(hass, config_entry)) == {"Test Stick", "Shared Stick"}
 
     # The share expired: only A is left.
+    for _ in range(MISSING_POLLS_BEFORE_REMOVAL - 1):
+        await _poll(hass, aioclient_mock, freezer, json=trackers_payload[:1])
+        assert "Shared Stick" in _devices(hass, config_entry)
     await _poll(hass, aioclient_mock, freezer, json=trackers_payload[:1])
     assert set(_devices(hass, config_entry)) == {"Test Stick"}
     assert hass.states.get("device_tracker.shared_stick") is None
@@ -199,6 +241,93 @@ async def test_tracker_removed_and_added(
     await _poll(hass, aioclient_mock, freezer, json=trackers_payload)
     assert set(_devices(hass, config_entry)) == {"Test Stick", "Shared Stick"}
     assert hass.states.get("binary_sensor.shared_stick_online").state == STATE_OFF
+
+
+async def test_empty_list_removes_nothing(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    trackers_payload: list[dict[str, Any]],
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await _setup(hass, aioclient_mock, config_entry, trackers_payload)
+    for _ in range(MISSING_POLLS_BEFORE_REMOVAL + 2):
+        await _poll(hass, aioclient_mock, freezer, json=[])
+    assert set(_devices(hass, config_entry)) == {"Test Stick", "Shared Stick"}
+    assert caplog.text.count("returned no trackers") == 1
+
+    await _poll(hass, aioclient_mock, freezer, json=trackers_payload)
+    assert hass.states.get("sensor.test_stick_battery").state == "81"
+
+
+async def test_other_entries_devices_are_left_alone(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    trackers_payload: list[dict[str, Any]],
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    other = MockConfigEntry(domain=DOMAIN, unique_id="https://other.example.org:u2", data={})
+    other.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    foreign = registry.async_get_or_create(
+        config_entry_id=other.entry_id,
+        identifiers={(DOMAIN, f"{other.unique_id}:{TRACKER_A}")},
+        name="Someone else's",
+    )
+    await _setup(hass, aioclient_mock, config_entry, trackers_payload)
+    for _ in range(MISSING_POLLS_BEFORE_REMOVAL + 1):
+        await _poll(hass, aioclient_mock, freezer, json=trackers_payload[1:])
+    kept = registry.async_get(foreign.id)
+    assert kept is not None
+    assert kept.name == "Someone else's"
+
+
+@pytest.mark.parametrize(
+    "position",
+    [
+        {"lat": 91.0, "lon": 0.0},
+        {"lat": 0.0, "lon": -180.5},
+        {"lat": math.inf, "lon": 0.0},
+        {"lat": 0.0, "lon": math.nan},
+    ],
+)
+async def test_impossible_position_is_no_position(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    trackers_payload: list[dict[str, Any]],
+    position: dict[str, float],
+) -> None:
+    trackers_payload[0]["position"] = position
+    await _setup(hass, aioclient_mock, config_entry, trackers_payload)
+    state = hass.states.get("device_tracker.test_stick")
+    assert state.state == STATE_UNKNOWN
+    assert "latitude" not in state.attributes
+
+
+async def test_devices_survive_reconfigure(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    trackers_payload: list[dict[str, Any]],
+) -> None:
+    await _setup(hass, aioclient_mock, config_entry, trackers_payload)
+    before = {d.id for d in _devices(hass, config_entry).values()}
+    entity = er.async_get(hass).async_get("device_tracker.test_stick")
+
+    aioclient_mock.get(api_url(PROD_URL, "/me"), json=ME)
+    result = await config_entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_SERVER: SERVER_PRODUCTION, CONF_TOKEN: "ltk_newtoken"}
+    )
+    await hass.async_block_till_done()
+    assert result["reason"] == "reconfigure_successful"
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert {d.id for d in _devices(hass, config_entry).values()} == before
+    assert er.async_get(hass).async_get("device_tracker.test_stick").id == entity.id
+    assert hass.states.get("device_tracker.test_stick").attributes["latitude"] == 0.5
 
 
 async def test_rename_on_website_updates_device(
@@ -250,7 +379,23 @@ async def test_diagnostics_redacts_token_and_position(
     await _setup(hass, aioclient_mock, config_entry, trackers_payload)
     diag = await async_get_config_entry_diagnostics(hass, config_entry)
     text = repr(diag)
-    assert TOKEN not in text
-    assert "-20.25" not in text
+    for secret in (
+        TOKEN,
+        "-20.25",
+        "0.5",
+        PROD_URL,
+        "api.ltek.dk",
+        "tester",
+        "Test Stick",
+        "Shared Stick",
+        TRACKER_A,
+        TRACKER_B,
+        USER_ID,
+    ):
+        assert secret not in text, secret
     assert diag["entry"]["data"]["token"] == "**REDACTED**"
-    assert diag["trackers"][0]["battery"]["pct"] == 81
+    tracker = diag["trackers"][0]
+    assert "access" not in tracker
+    assert tracker["position"] == {"sats": 9, "h_acc_m": 4}
+    assert tracker["battery"]["pct"] == 81
+    assert tracker["firmware"]["app"] == "1.3.0"

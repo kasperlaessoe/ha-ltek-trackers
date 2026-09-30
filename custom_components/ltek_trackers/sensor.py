@@ -53,7 +53,9 @@ def _text(*path: str) -> Callable[[dict[str, Any] | None], Value]:
 def _timestamp(*path: str) -> Callable[[dict[str, Any] | None], Value]:
     def read(tracker: dict[str, Any] | None) -> Value:
         value = field(tracker, *path)
-        return dt_util.parse_datetime(value) if isinstance(value, str) else None
+        parsed = dt_util.parse_datetime(value) if isinstance(value, str) else None
+        # HA rejects a naive timestamp; without a zone the instant is unknown.
+        return parsed if parsed and parsed.tzinfo else None
 
     return read
 
@@ -92,7 +94,6 @@ SENSORS: tuple[LtekSensorDescription, ...] = (
         key="speed",
         device_class=SensorDeviceClass.SPEED,
         native_unit_of_measurement=UnitOfSpeed.METERS_PER_SECOND,
-        suggested_unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
         suggested_display_precision=0,
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=_number("position", "speed_ms"),
