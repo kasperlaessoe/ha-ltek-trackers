@@ -1,0 +1,115 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to LTEK",
+        "description": "Create a personal API token on your LTEK profile page and paste it here. A token only works on the server it was created on.",
+        "data": {
+          "server": "Server",
+          "token": "API token"
+        },
+        "data_description": {
+          "server": "Production is api.ltek.dk. Development is only for testing new features.",
+          "token": "Starts with ltk_. It is stored only in Home Assistant."
+        }
+      },
+      "custom_url": {
+        "title": "Custom server",
+        "description": "Base URL of the LTEK API, without /api/v1.",
+        "data": {
+          "url": "URL"
+        },
+        "data_description": {
+          "url": "Must use https, unless the server runs on this machine (localhost)."
+        }
+      },
+      "reconfigure": {
+        "title": "Change server or token",
+        "description": "A token only works on the server it was created on, so switching server needs a token from that server.",
+        "data": {
+          "server": "Server",
+          "token": "API token"
+        }
+      },
+      "reconfigure_url": {
+        "title": "Custom server",
+        "description": "Base URL of the LTEK API, without /api/v1.",
+        "data": {
+          "url": "URL"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Token no longer accepted",
+        "description": "The token for {url} was revoked or has expired. Create a new one on your LTEK profile page for the same account.",
+        "data": {
+          "token": "API token"
+        }
+      }
+    },
+    "error": {
+      "invalid_auth": "The server rejected the token, or the token has no access to trackers.",
+      "invalid_token_format": "An LTEK API token starts with ltk_.",
+      "cannot_connect": "Could not reach the server.",
+      "invalid_url": "Not a valid URL. Use https:// (http:// only for localhost)."
+    },
+    "abort": {
+      "already_configured": "This account on this server is already set up.",
+      "reauth_successful": "The token was updated.",
+      "reconfigure_successful": "The connection was updated.",
+      "wrong_account": "That token belongs to a different account. Add it as a new entry instead."
+    }
+  },
+  "selector": {
+    "server": {
+      "options": {
+        "production": "Production (api.ltek.dk)",
+        "development": "Development (api-dev.cluster.ltek.dk)",
+        "custom": "Custom URL"
+      }
+    }
+  },
+  "entity": {
+    "device_tracker": {
+      "location": {
+        "name": "Location"
+      }
+    },
+    "binary_sensor": {
+      "moving": {
+        "name": "Moving"
+      },
+      "online": {
+        "name": "Online"
+      }
+    },
+    "sensor": {
+      "battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "altitude": {
+        "name": "Altitude"
+      },
+      "satellites": {
+        "name": "Satellites"
+      },
+      "rsrp": {
+        "name": "Signal strength (RSRP)"
+      },
+      "snr": {
+        "name": "Signal-to-noise ratio"
+      },
+      "last_seen": {
+        "name": "Last seen"
+      },
+      "firmware": {
+        "name": "Firmware"
+      },
+      "modem_firmware": {
+        "name": "Modem firmware"
+      },
+      "config_state": {
+        "name": "Configuration state"
+      }
+    }
+  }
+}
