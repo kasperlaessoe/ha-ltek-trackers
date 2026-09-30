@@ -34,7 +34,7 @@ from .const import (
     SERVER_DEVELOPMENT,
     SERVER_PRODUCTION,
     SERVERS,
-    TOKEN_PREFIX,
+    TOKEN_RE,
 )
 
 TOKEN_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
@@ -63,14 +63,24 @@ def normalize_url(raw: str) -> str | None:
     """
     try:
         parts = urlsplit(raw.strip())
-        host = parts.hostname
+        host = parts.hostname  # already lowercased by urlsplit
+        port = parts.port
     except ValueError:
         return None
     if not host or parts.query or parts.fragment or parts.username or parts.password:
         return None
-    if parts.scheme == "https" or (parts.scheme == "http" and host in LOCAL_HOSTS):
-        return f"{parts.scheme}://{parts.netloc}{parts.path}".rstrip("/")
-    return None
+    scheme = parts.scheme.lower()
+    if not (scheme == "https" or (scheme == "http" and host in LOCAL_HOSTS)):
+        return None
+    netloc = f"[{host}]" if ":" in host else host
+    if port is not None:
+        netloc = f"{netloc}:{port}"
+    return f"{scheme}://{netloc}{parts.path}".rstrip("/")
+
+
+def token_ok(token: str) -> bool:
+    """Shape check only; the server decides whether it is valid."""
+    return TOKEN_RE.fullmatch(token) is not None
 
 
 def entry_title(server: str, url: str, account: Account) -> str:
@@ -98,7 +108,7 @@ class LtekTrackersConfigFlow(ConfigFlow, domain=DOMAIN):
         self._token = ""
 
     async def _validate(self, url: str, token: str) -> tuple[Account | None, dict[str, str]]:
-        if not token.startswith(TOKEN_PREFIX):
+        if not token_ok(token):
             return None, {CONF_TOKEN: "invalid_token_format"}
         client = TrackersClient(async_get_clientsession(self.hass), url, token)
         try:
@@ -115,24 +125,21 @@ class LtekTrackersConfigFlow(ConfigFlow, domain=DOMAIN):
         if account is None:
             return None, errors
         data = {CONF_SERVER: self._server, CONF_URL: url, CONF_TOKEN: token}
-        unique_id = entry_unique_id(url, account)
         title = entry_title(self._server, url, account)
+        await self.async_set_unique_id(entry_unique_id(url, account))
 
         if self.source == SOURCE_RECONFIGURE:
-            entry = self._get_reconfigure_entry()
-            # Switching server is the point of reconfigure, so the account may
-            # change; it may not collide with another entry that already has it.
-            if unique_id != entry.unique_id:
-                await self.async_set_unique_id(unique_id)
-                self._abort_if_unique_id_configured()
+            # Reconfigure replaces the token (or tidies a custom URL that
+            # normalizes to the same thing). The unique id holds both server
+            # and account, so either changing aborts: that is a new entry.
+            self._abort_if_unique_id_mismatch(reason="wrong_account")
             return (
                 self.async_update_reload_and_abort(
-                    entry, unique_id=unique_id, title=title, data=data
+                    self._get_reconfigure_entry(), title=title, data_updates=data
                 ),
                 {},
             )
 
-        await self.async_set_unique_id(unique_id)
         self._abort_if_unique_id_configured()
         return self.async_create_entry(title=title, data=data), {}
 
@@ -144,7 +151,7 @@ class LtekTrackersConfigFlow(ConfigFlow, domain=DOMAIN):
             self._server = user_input[CONF_SERVER]
             self._token = user_input[CONF_TOKEN].strip()
             if self._server == SERVER_CUSTOM:
-                if not self._token.startswith(TOKEN_PREFIX):
+                if not token_ok(self._token):
                     errors[CONF_TOKEN] = "invalid_token_format"
                 else:
                     if step_id == "reconfigure":

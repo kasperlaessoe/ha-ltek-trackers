@@ -41,7 +41,9 @@ class TrackersClient:
         headers = {"Authorization": f"Bearer {self._token}", "Accept": "application/json"}
         try:
             async with asyncio.timeout(REQUEST_TIMEOUT_S):
-                async with self._session.get(url, headers=headers) as resp:
+                # A redirect would carry the bearer token to wherever it
+                # points; the API never redirects, so treat one as an error.
+                async with self._session.get(url, headers=headers, allow_redirects=False) as resp:
                     if resp.status in (401, 403):
                         raise InvalidAuth(f"HTTP {resp.status}")
                     if resp.status != 200:

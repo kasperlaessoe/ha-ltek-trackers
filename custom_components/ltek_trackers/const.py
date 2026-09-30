@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 DOMAIN = "ltek_trackers"
 LOGGER = logging.getLogger(__package__)
@@ -27,6 +28,7 @@ API_PREFIX = "/api/v1/trackers"
 # Personal API tokens start with this, so a pasted JWT or a typo fails in the
 # form instead of as a 401 from the server.
 TOKEN_PREFIX = "ltk_"
+TOKEN_RE = re.compile(rf"^{TOKEN_PREFIX}[A-Za-z0-9_-]+$")
 
 # Plain http is only accepted for a server on the HA host itself.
 LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
@@ -34,5 +36,8 @@ LOCAL_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 # Sticks report every 60 s moving and 300 s parked; polling faster buys nothing.
 SCAN_INTERVAL_S = 30
 REQUEST_TIMEOUT_S = 15
+
+# Consecutive polls a tracker must be absent from before its device is removed.
+MISSING_POLLS_BEFORE_REMOVAL = 3
 
 MANUFACTURER = "LTEK"

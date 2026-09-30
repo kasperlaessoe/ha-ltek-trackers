@@ -24,8 +24,8 @@
         }
       },
       "reconfigure": {
-        "title": "Change server or token",
-        "description": "A token only works on the server it was created on, so switching server needs a token from that server.",
+        "title": "Replace token",
+        "description": "Replace the token for this account. To use another server or account, add a new entry instead.",
         "data": {
           "server": "Server",
           "token": "API token"
@@ -48,7 +48,7 @@
     },
     "error": {
       "invalid_auth": "The server rejected the token, or the token has no access to trackers.",
-      "invalid_token_format": "An LTEK API token starts with ltk_.",
+      "invalid_token_format": "An LTEK API token starts with ltk_ and contains only letters, digits, - and _.",
       "cannot_connect": "Could not reach the server.",
       "invalid_url": "Not a valid URL. Use https:// (http:// only for localhost)."
     },
@@ -56,7 +56,7 @@
       "already_configured": "This account on this server is already set up.",
       "reauth_successful": "The token was updated.",
       "reconfigure_successful": "The connection was updated.",
-      "wrong_account": "That token belongs to a different account. Add it as a new entry instead."
+      "wrong_account": "That token belongs to a different account or server. To use another server or account, add a new entry."
     }
   },
   "selector": {
