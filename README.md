@@ -39,27 +39,31 @@ add the integration twice, once per server, each with a token created on that
 server's website. The development entry gets " (dev)" added to its title.
 
 If a token is revoked or expires, Home Assistant asks for a new one. The new
-token must belong to the same account. To move an entry to another server or
-account, open the entry's menu and choose *Reconfigure*.
+token must belong to the same account. To replace a working token, open the
+entry's menu and choose *Reconfigure*. Reconfigure keeps the same server and
+account. To use another server or account, add a new entry.
 
 ## What you get
 
 Each tracker becomes a device, named as it is on the LTEK website. If a
-tracker is unshared, its share expires or it is released, its device is
-removed on the next poll. If it is shared again, the device is added back.
+tracker is unshared, its share expires or it is released, its entities become
+unavailable. Its device is removed once it has been missing from three polls
+in a row, about 90 seconds. If it is shared again, the device is added back.
+If the server returns no trackers at all, nothing is removed, because that is
+more likely a server problem than every share ending at once.
 
 | Entity | Notes |
 |---|---|
 | Location (`device_tracker`) | GPS position, accuracy and battery. Works with zones, person entities and the map card |
 | Battery | Percentage |
-| Speed | Shown in km/h |
+| Speed | In your unit system's speed unit; change it in the entity settings |
 | Altitude | Metres |
 | Last seen | Time of the newest message from the tracker |
 | Moving | On while the tracker reports that it is moving |
 | Online | Whether the tracker is reporting on schedule |
 | Signal strength (RSRP) | Diagnostic |
 | Firmware | Diagnostic |
-| Configuration state | Diagnostic. Shown only when you can change the tracker's settings (manager or owner) |
+| Configuration state | Diagnostic. Shown only when you can change the tracker's settings (manager or owner). If your role on a tracker changes, for example from viewer to manager, reload the entry to add or remove this sensor |
 | Battery voltage, satellites, signal-to-noise ratio, modem firmware | Diagnostic, disabled by default |
 
 When the server leaves out a value, for example a tracker that has no GPS
@@ -75,7 +79,10 @@ it leaks. A shared tracker shows only what its owner has shared with you. If
 the share has an end date, the tracker disappears from Home Assistant when
 the share ends.
 
-The diagnostics download removes the token and all coordinates.
+The diagnostics download leaves out the token, the server URL, your username,
+tracker names and ids, coordinates and everything else about the position
+except satellite count and accuracy. Check it before you attach it to a
+public issue anyway.
 
 ## Development
 
