@@ -1,0 +1,16 @@
+# ruff + pytest. The monorepo's verify.sh does not touch this repo.
+test:
+  image: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+  variables:
+    UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+    UV_LINK_MODE: copy
+  cache:
+    key: uv-$CI_JOB_NAME
+    paths:
+      - .uv-cache/
+  script:
+    - uv venv .venv
+    - uv pip install -p .venv --group dev
+    - .venv/bin/ruff check .
+    - .venv/bin/ruff format --check .
+    - .venv/bin/pytest -q -p no:sugar --cov=custom_components.ltek_trackers --cov-report=term

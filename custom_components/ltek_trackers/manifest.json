@@ -1,0 +1,12 @@
+{
+  "domain": "ltek_trackers",
+  "name": "LTEK Trackers",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://gitlab.laessoe.net/kasper/ha-ltek-trackers",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://gitlab.laessoe.net/kasper/ha-ltek-trackers/-/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

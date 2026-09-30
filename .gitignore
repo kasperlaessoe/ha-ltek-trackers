@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+# A developer's HA config dir, never committed: it holds tokens.
+config/
+secrets.yaml
+.env
+.uv-cache/
+uv.lock
